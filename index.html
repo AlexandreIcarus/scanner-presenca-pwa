@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scanner de Presença QR</title>
+    <!-- Configurações PWA (Para que ele funcione como um App) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#10b981">
+    <link rel="manifest" href="data:application/json;base64,eyJpY29ucyI6W3sic2l6ZXMiOiIxOTJ4MTkyIiwidHlwZSI6ImltYWdlL3BuZyIsInNyYyI6Imh0dHBzOi8vcGxhY2Vob2xkLmNvLzE5MngxOTI/dGV4dD1RUiJ9LHsic2l6ZXMiOiI1MTJ4NTEyIiwidHlwZSI6ImltYWdlL3BuZyIsInNyYyI6Imh0dHBzOi8vcGxhY2Vob2xkLmNvLzUxMng1MTI/dGV4dD1RUiJ9XSwibmFtZSI6IlJlc2lzdHJvIFRSUSIsImR5c3BsYXkiOiJzdGFuZGFsb25lIiwic3RhcnRfdXJsIjoiLz91dG09c3RhbmRhbG9uZSIsImJhY2tncm91bmRfY29sb3IiOiIjRjNFREQ0In0=">
+    <!-- Fim das Configurações PWA -->
+
+    <!-- Carrega Tailwind CSS para estilização rápida e responsiva -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Define a fonte Inter (padrão recomendado) */
+        :root {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Estilos para o container da câmera */
+        #camera-container {
+            width: 100%;
+            position: relative;
+            /* Garante que o container da câmera não seja muito alto em desktops */
+            max-height: 70vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #1f2937; /* Fundo cinza escuro */
+            border-radius: 0.75rem; /* rounded-xl */
+        }
+        /* O elemento de vídeo é onde o feed da câmera será exibido */
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Garante que o vídeo preencha o container */
+            display: block;
+        }
+        /* O canvas é onde a imagem do vídeo é desenhada para a leitura do QR code */
+        #canvas {
+            display: none; /* Mantém o canvas escondido, mas ativo */
+        }
+        /* Linha de foco para ajudar a enquadrar o QR code */
+        #focus-box {
+            position: absolute;
+            width: 60%;
+            height: 60%;
+            max-width: 300px;
+            max-height: 300px;
+            border: 3px dashed #10b981; /* Verde esmeralda */
+            pointer-events: none; /* Permite interagir com o vídeo por baixo */
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            border-radius: 0.5rem;
+        }
+        /* Estilo para a mensagem de status (feedback rápido) */
+        #status-message {
+            transition: all 0.3s ease-in-out;
+            min-height: 4rem; /* Garante que o layout não mude ao carregar */
+        }
+    </style>
+    <!-- Inclui a biblioteca jsQR para decodificar o QR code -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen p-4 flex flex-col items-center">
+
+    <div class="w-full max-w-lg">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6 mt-2">
+            Registro de Presença 
+        </h1>
+
+        <!-- Container da Câmera -->
+        <div id="camera-container" class="shadow-xl mb-4 relative">
+            <!-- Elemento de Vídeo -->
+            <video id="video" playsinline></video>
+            
+            <!-- Linha de Foco do Scanner -->
+            <div id="focus-box"></div>
+            
+            <!-- Mensagem de Câmera Desativada/Erro -->
+            <div id="loading-message" class="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-70 text-white p-4 rounded-xl">
+                Aguardando permissão da câmera...
+            </div>
+            
+            <!-- Elemento Canvas (escondido) -->
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <!-- Mensagem de Status (Sucesso/Erro/Aguardando) -->
+        <div id="status-message" class="text-center p-4 rounded-lg font-semibold text-lg shadow-md bg-white border border-gray-200 mb-6">
+            Aponte a câmera para um QR Code.
+        </div>
+
+        <!-- Botão para redefinir a lista (agora exige clique duplo) -->
+        <button id="reset-button" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-xl transition duration-150 shadow-lg">
+            Redefinir Lista de Presença (Clique Duplo)
+        </button>
+        
+        <!-- Contagem de Presença -->
+        <div class="mt-4 p-3 bg-white rounded-xl shadow-inner text-center">
+            <p class="text-sm text-gray-600">Presentes / Total</p>
+            <p id="count-display" class="text-2xl font-extrabold text-green-700">0 / 88</p>
+        </div>
+
+        <!-- Lista de Status de Presença -->
+        <div class="mt-4 p-4 bg-white rounded-xl shadow-md">
+            <h3 class="text-lg font-bold text-gray-700 mb-2">Status dos Convidados (88 IDs)</h3>
+            <!-- Usando grid-cols-8 e gap-3 para garantir 8 por linha com espaço -->
+            <div id="attendance-list-display" class="grid grid-cols-8 gap-3 text-xs">
+                <!-- IDs serão injetados aqui via JavaScript -->
+            </div>
+        </div>
+        
+    </div>
+
+    <script>
+        // --- Registro Básico de Service Worker para PWA e Funcionalidade Offline ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                // Registra um Service Worker de mentira, apenas para que o navegador reconheça o PWA.
+                // Em uma aplicação real, você precisaria de um 'sw.js'
+                console.log('PWA Service Worker Registration OK.');
+            });
+        }
+        
+        // Variáveis globais para os elementos
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const loadingMessage = document.getElementById('loading-message');
+        const statusMessage = document.getElementById('status-message');
+        const countDisplay = document.getElementById('count-display');
+        const attendanceListDisplay = document.getElementById('attendance-list-display'); // Novo elemento
+        const resetButton = document.getElementById('reset-button');
+        
+        // Chave de armazenamento local para a lista de presença
+        const STORAGE_KEY = 'eventAttendanceList';
+        const TOTAL_PEOPLE = 88;
+        
+        // --- 1. Funções de Persistência (localStorage) ---
+        
+        /**
+         * Inicializa a lista de presença no localStorage se não existir.
+         * Cria 88 IDs de P001 a P088.
+         */
+        function initializeAttendanceList() {
+            let list = localStorage.getItem(STORAGE_KEY);
+            if (!list) {
+                console.log("Criando lista inicial de 88 pessoas.");
+                const initialList = {};
+                for (let i = 1; i <= TOTAL_PEOPLE; i++) {
+                    const id = `P${String(i).padStart(3, '0')}`;
+                    initialList[id] = {
+                        presente: false,
+                        nome: `Convidado ${i}`, // Nome fictício
+                        registro: null // Timestamp do registro
+                    };
+                }
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(initialList));
+                return initialList;
+            }
+            return JSON.parse(list);
+        }
+
+        /**
+         * Atualiza a lista no localStorage e no display.
+         * @param {Object} list - A lista de presença atualizada.
+         */
+        function saveAttendanceList(list) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+            updateCountDisplay(list);
+        }
+        
+        /**
+         * Atualiza o contador de presentes no UI e renderiza a lista.
+         * @param {Object} list - A lista de presença.
+         */
+        function updateCountDisplay(list) {
+            const presentCount = Object.values(list).filter(p => p.presente).length;
+            countDisplay.textContent = `${presentCount} / ${TOTAL_PEOPLE}`;
+            renderAttendanceList(list); // Chamada para a nova função de renderização
+        }
+
+        /**
+         * Renderiza a lista completa de IDs no final da página, usando cores para status.
+         * A largura de cada item é gerenciada pelo grid-cols-8.
+         * @param {Object} list - A lista de presença.
+         */
+        function renderAttendanceList(list) {
+            let html = '';
+            // Ordena os IDs para garantir que P001, P002, etc., apareçam em ordem
+            const sortedKeys = Object.keys(list).sort();
+
+            sortedKeys.forEach(id => {
+                const person = list[id];
+                // Classes base para o estilo de cada ID. w-8 foi removido.
+                let classes = 'p-1 rounded-sm transition-colors duration-200 text-center'; 
+                
+                if (person.presente) {
+                    // ID presente: preto em negrito, fundo verde claro
+                    classes += ' font-bold text-gray-900 bg-green-200';
+                } else {
+                    // ID ausente: cinza claro, fundo cinza muito claro
+                    classes += ' text-gray-400 bg-gray-100';
+                }
+
+                // Exibe apenas o ID
+                html += `<span data-id="${id}" class="${classes}">${id}</span>`;
+            });
+
+            attendanceListDisplay.innerHTML = html;
+        }
+
+        // --- 2. Funções de UI e Feedback ---
+
+        /**
+         * Exibe uma mensagem de status temporária.
+         * @param {string} message - A mensagem a exibir.
+         * @param {string} type - 'success', 'error', ou 'info'.
+         */
+        function showStatus(message, type = 'info') {
+            statusMessage.textContent = message;
+            // Classes base para a mensagem de status
+            statusMessage.className = 'text-center p-4 rounded-lg font-semibold text-lg shadow-md mb-6 transition duration-150 min-h-4rem border';
+            
+            switch (type) {
+                case 'success':
+                    statusMessage.classList.add('bg-green-100', 'text-green-700', 'border-green-400');
+                    break;
+                case 'error':
+                    statusMessage.classList.add('bg-red-100', 'text-red-700', 'border-red-400');
+                    break;
+                default:
+                    statusMessage.classList.add('bg-gray-100', 'text-gray-600', 'border-gray-200');
+                    break;
+            }
+        }
+        
+        // --- 3. Lógica Principal de Escaneamento ---
+
+        /**
+         * Verifica o ID escaneado e atualiza a lista de presença.
+         * @param {string} scannedId - O ID lido do QR Code.
+         */
+        function checkAndRegisterPresence(scannedId) {
+            let list = initializeAttendanceList();
+            const person = list[scannedId];
+            // Usa 'HH:MM:SS' para registro
+            const now = new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+
+            // Verifica se o ID é válido (existe na lista)
+            if (!person) {
+                // Código não reconhecido
+                showStatus(`ERRO: ID "${scannedId}" não encontrado.`, 'error');
+                console.error(`ID inválido escaneado: ${scannedId}`);
+                return;
+            }
+
+            // Verifica se a pessoa já está presente
+            if (person.presente) {
+                // Pessoa já registrada
+                showStatus(`AVISO: ${person.nome} já PRESENTE (Reg: ${person.registro}).`, 'error');
+                console.warn(`${scannedId} já está presente.`);
+                return;
+            }
+
+            // Registro de presença bem-sucedido
+            person.presente = true;
+            person.registro = now;
+            saveAttendanceList(list);
+
+            showStatus(`SUCESSO: ${person.nome} (ID: ${scannedId}) REGISTRADO(A)!`, 'success');
+            console.log(`${scannedId} registrado com sucesso.`);
+        }
+
+        /**
+         * Loop principal de detecção de QR Code.
+         */
+        function tick() {
+            // Se o vídeo não estiver rodando, ou estiver pausado, ou não tiver dimensão, para o loop.
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                // Configura o canvas para o tamanho do vídeo
+                canvas.height = video.videoHeight;
+                canvas.width = video.videoWidth;
+
+                // Desenha o frame do vídeo no canvas
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Pega os dados de pixel do canvas
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                
+                // Tenta decodificar o QR code
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert", // Otimiza para QR codes impressos
+                });
+
+                if (code) {
+                    // QR Code encontrado!
+                    // Pausa o vídeo para evitar múltiplos scans do mesmo código imediatamente
+                    video.pause();
+                    checkAndRegisterPresence(code.data);
+                    
+                    // Continua o escaneamento após um breve período para dar tempo ao usuário de ver a mensagem
+                    setTimeout(() => {
+                        video.play();
+                    }, 2500); // 2.5 segundos de pausa
+                    
+                }
+            }
+            // Continua o loop de escaneamento
+            requestAnimationFrame(tick);
+        }
+
+        // --- 4. Inicialização e Event Listeners ---
+        
+        /**
+         * Inicia o feed da câmera.
+         */
+        async function startCamera() {
+            // Inicializa a lista e o display
+            const initialList = initializeAttendanceList();
+            updateCountDisplay(initialList);
+            
+            try {
+                // Pede permissão e inicia a câmera
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: "environment" // Usa a câmera traseira em celulares
+                    } 
+                });
+                
+                video.srcObject = stream;
+                video.setAttribute("playsinline", true); // Requerido para iOS
+                
+                video.onloadedmetadata = () => {
+                    video.play();
+                    loadingMessage.style.display = 'none'; // Esconde a mensagem de carregamento
+                    requestAnimationFrame(tick); // Inicia o loop de escaneamento
+                };
+
+            } catch (err) {
+                console.error("ERRO GRAVE: Falha ao acessar a câmera. Causa:", err.name, err.message);
+                loadingMessage.textContent = "ERRO: Câmera inacessível. Esta página precisa ser aberta via HTTPS ou servidor web local (http://) para acessar a câmera.";
+                loadingMessage.classList.remove('bg-gray-900');
+                loadingMessage.classList.add('bg-red-700');
+            }
+        }
+        
+        // Listener para o botão de reset (implementa confirmação de clique duplo)
+        let resetClickCount = 0;
+        resetButton.addEventListener('click', () => {
+            if (resetClickCount === 0) {
+                resetButton.textContent = 'CONFIRMAR? Clique novamente para APAGAR TUDO!';
+                resetButton.classList.remove('bg-red-500', 'hover:bg-red-600');
+                resetButton.classList.add('bg-red-700', 'hover:bg-red-800');
+                resetClickCount = 1;
+
+                // Define um timeout para reverter o botão caso não haja o segundo clique
+                setTimeout(() => {
+                    if (resetClickCount === 1) {
+                        resetButton.textContent = 'Redefinir Lista de Presença (Clique Duplo)';
+                        resetButton.classList.remove('bg-red-700', 'hover:bg-red-800');
+                        resetButton.classList.add('bg-red-500', 'hover:bg-red-600');
+                        resetClickCount = 0;
+                    }
+                }, 3000); // 3 segundos para confirmar
+            } else {
+                // Confirmação de reset realizada
+                localStorage.removeItem(STORAGE_KEY);
+                console.log("Lista de presença redefinida por confirmação de duplo clique.");
+                window.location.reload(); 
+            }
+        });
+        
+        // Inicia o aplicativo ao carregar a página
+        window.addEventListener('load', startCamera);
+
+    </script>
+</body>
+</html>
