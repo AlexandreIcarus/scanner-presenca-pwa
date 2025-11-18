@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scanner de Presença QR</title>
+    <title>Viagem Paranapiacaba (Multi-Usuário)</title>
     <!-- Configurações PWA (Para que ele funcione como um App) -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
@@ -66,12 +66,25 @@
     </style>
     <!-- Inclui a biblioteca jsQR para decodificar o QR code -->
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+    <!-- Firebase SDKs para Banco de Dados em Nuvem (Firestore) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // As variáveis globais serão setadas após o carregamento do window
+        window.firebase = { 
+            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, 
+            onAuthStateChanged, getFirestore, doc, setDoc, updateDoc, onSnapshot 
+        };
+    </script>
 </head>
 <body class="bg-gray-50 min-h-screen p-4 flex flex-col items-center">
 
     <div class="w-full max-w-lg">
         <h1 class="text-3xl font-bold text-center text-gray-800 mb-6 mt-2">
-            Viagem de Paranapiacaba - Registro de Presença 
+            Viagem Paranapiacaba - Scanner (Compartilhado)
         </h1>
 
         <!-- Container da Câmera -->
@@ -82,9 +95,9 @@
             <!-- Linha de Foco do Scanner -->
             <div id="focus-box"></div>
             
-            <!-- Mensagem de Câmera Desativada/Erro -->
+            <!-- Mensagem de Câmera Desativada/Erro/Autenticação -->
             <div id="loading-message" class="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-70 text-white p-4 rounded-xl">
-                Aguardando permissão da câmera...
+                Iniciando sistema de sincronização e câmera...
             </div>
             
             <!-- Elemento Canvas (escondido) -->
@@ -93,7 +106,7 @@
 
         <!-- Mensagem de Status (Sucesso/Erro/Aguardando) -->
         <div id="status-message" class="text-center p-4 rounded-lg font-semibold text-lg shadow-md bg-white border border-gray-200 mb-6">
-            Aponte a câmera para um QR Code.
+            Aguardando a conexão com a base de dados.
         </div>
 
         <!-- Botão para redefinir a lista (agora exige clique duplo) -->
@@ -105,6 +118,11 @@
         <div class="mt-4 p-3 bg-white rounded-xl shadow-inner text-center">
             <p class="text-sm text-gray-600">Presentes / Total</p>
             <p id="count-display" class="text-2xl font-extrabold text-green-700">0 / 88</p>
+        </div>
+        
+        <!-- ID do Usuário (para fins de debug e identificação) -->
+        <div class="mt-2 text-center text-xs text-gray-500">
+             <p>Usuário Atual: <span id="user-id-display">Carregando...</span></p>
         </div>
 
         <!-- Lista de Status de Presença -->
@@ -118,16 +136,7 @@
         
     </div>
 
-    <script>
-        // --- Registro Básico de Service Worker para PWA e Funcionalidade Offline ---
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                // Registra um Service Worker de mentira, apenas para que o navegador reconheça o PWA.
-                // Em uma aplicação real, você precisaria de um 'sw.js'
-                console.log('PWA Service Worker Registration OK.');
-            });
-        }
-        
+    <script type="module">
         // Variáveis globais para os elementos
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
@@ -135,81 +144,110 @@
         const loadingMessage = document.getElementById('loading-message');
         const statusMessage = document.getElementById('status-message');
         const countDisplay = document.getElementById('count-display');
-        const attendanceListDisplay = document.getElementById('attendance-list-display'); // Novo elemento
+        const attendanceListDisplay = document.getElementById('attendance-list-display');
         const resetButton = document.getElementById('reset-button');
-        
-        // Chave de armazenamento local para a lista de presença
-        const STORAGE_KEY = 'eventAttendanceList';
+        const userIdDisplay = document.getElementById('user-id-display');
+
         const TOTAL_PEOPLE = 88;
+        const ATTENDANCE_DOC_ID = 'attendance_data';
         
-        // --- 1. Funções de Persistência (localStorage) ---
+        // Variáveis Firebase
+        let db;
+        let auth;
+        let isAuthReady = false;
+        let currentUserId = 'unknown';
+        
+        // Estado local da lista (cache)
+        let attendanceList = {}; 
+
+        // --- 1. Funções de Persistência (Firestore) ---
         
         /**
-         * Inicializa a lista de presença no localStorage se não existir.
-         * Cria 88 IDs de P001 a P088.
+         * Gera a lista inicial de 88 IDs se o documento não existir na base de dados.
          */
-        function initializeAttendanceList() {
-            let list = localStorage.getItem(STORAGE_KEY);
-            if (!list) {
-                console.log("Criando lista inicial de 88 pessoas.");
-                const initialList = {};
-                for (let i = 1; i <= TOTAL_PEOPLE; i++) {
-                    const id = `P${String(i).padStart(3, '0')}`;
-                    initialList[id] = {
-                        presente: false,
-                        nome: `Convidado ${i}`, // Nome fictício
-                        registro: null // Timestamp do registro
-                    };
-                }
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(initialList));
-                return initialList;
+        function generateInitialAttendanceData() {
+            const initialData = {};
+            for (let i = 1; i <= TOTAL_PEOPLE; i++) {
+                const id = `P${String(i).padStart(3, '0')}`;
+                initialData[id] = {
+                    presente: false,
+                    nome: `Convidado ${i}`,
+                    registro: null
+                };
             }
-            return JSON.parse(list);
+            initialData.lastUpdated = new Date().toISOString();
+            return initialData;
         }
 
         /**
-         * Atualiza a lista no localStorage e no display.
-         * @param {Object} list - A lista de presença atualizada.
+         * Pega a referência para o documento público compartilhado.
          */
-        function saveAttendanceList(list) {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-            updateCountDisplay(list);
+        function getAttendanceDocRef() {
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            // Caminho público: /artifacts/{appId}/public/data/attendance/attendance_data
+            return firebase.doc(db, 'artifacts', appId, 'public', 'data', 'attendance', ATTENDANCE_DOC_ID);
+        }
+
+        /**
+         * Inicia o listener de tempo real do Firestore.
+         */
+        function startRealtimeListener() {
+            const docRef = getAttendanceDocRef();
+            
+            // Inicia o listener de tempo real
+            firebase.onSnapshot(docRef, async (docSnap) => {
+                if (!docSnap.exists() || Object.keys(docSnap.data()).length <= 1) { 
+                    // Documento não existe ou está vazio. Cria a estrutura inicial.
+                    const initialData = generateInitialAttendanceData();
+                    console.log("Documento não encontrado, criando lista inicial no Firestore.");
+                    // Tenta criar o documento. Se for a primeira vez, ele será criado.
+                    await firebase.setDoc(docRef, initialData);
+                    attendanceList = initialData;
+                    showStatus("Lista inicial criada no Firestore. Aponte a câmera.", 'info');
+                } else {
+                    // Documento existe, atualiza o estado local
+                    attendanceList = docSnap.data();
+                    updateCountDisplay(attendanceList);
+                    showStatus("Conectado à base de dados em tempo real. Pronto para escanear.", 'success');
+                }
+            }, (error) => {
+                console.error("Erro ao conectar ao Firestore:", error);
+                showStatus("ERRO: Falha na sincronização com o banco de dados.", 'error');
+            });
         }
         
         /**
          * Atualiza o contador de presentes no UI e renderiza a lista.
-         * @param {Object} list - A lista de presença.
+         * @param {Object} list - A lista de presença (dados do Firestore).
          */
         function updateCountDisplay(list) {
-            const presentCount = Object.values(list).filter(p => p.presente).length;
+            // Remove a chave 'lastUpdated' e outras chaves de metadados
+            const filteredList = Object.values(list).filter(key => key.presente !== undefined);
+            const presentCount = filteredList.filter(p => p.presente).length;
+            
             countDisplay.textContent = `${presentCount} / ${TOTAL_PEOPLE}`;
-            renderAttendanceList(list); // Chamada para a nova função de renderização
+            renderAttendanceList(list); 
         }
 
         /**
-         * Renderiza a lista completa de IDs no final da página, usando cores para status.
-         * A largura de cada item é gerenciada pelo grid-cols-8.
+         * Renderiza a lista completa de IDs no final da página.
          * @param {Object} list - A lista de presença.
          */
         function renderAttendanceList(list) {
             let html = '';
-            // Ordena os IDs para garantir que P001, P002, etc., apareçam em ordem
-            const sortedKeys = Object.keys(list).sort();
+            // Filtra e ordena as chaves que representam pessoas (P001, etc.)
+            const personKeys = Object.keys(list).filter(key => key.startsWith('P') && key.length === 4).sort();
 
-            sortedKeys.forEach(id => {
+            personKeys.forEach(id => {
                 const person = list[id];
-                // Classes base para o estilo de cada ID. w-8 foi removido.
                 let classes = 'p-1 rounded-sm transition-colors duration-200 text-center'; 
                 
-                if (person.presente) {
-                    // ID presente: preto em negrito, fundo verde claro
+                if (person && person.presente) {
                     classes += ' font-bold text-gray-900 bg-green-200';
                 } else {
-                    // ID ausente: cinza claro, fundo cinza muito claro
                     classes += ' text-gray-400 bg-gray-100';
                 }
 
-                // Exibe apenas o ID
                 html += `<span data-id="${id}" class="${classes}">${id}</span>`;
             });
 
@@ -244,123 +282,164 @@
         // --- 3. Lógica Principal de Escaneamento ---
 
         /**
-         * Verifica o ID escaneado e atualiza a lista de presença.
+         * Verifica o ID escaneado e atualiza a lista de presença no Firestore.
          * @param {string} scannedId - O ID lido do QR Code.
          */
-        function checkAndRegisterPresence(scannedId) {
-            let list = initializeAttendanceList();
-            const person = list[scannedId];
-            // Usa 'HH:MM:SS' para registro
+        async function checkAndRegisterPresence(scannedId) {
+            if (!isAuthReady) {
+                 showStatus("ERRO: O sistema de base de dados ainda não está pronto.", 'error');
+                 return;
+            }
+            
+            const person = attendanceList[scannedId];
             const now = new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+            const docRef = getAttendanceDocRef();
 
-            // Verifica se o ID é válido (existe na lista)
             if (!person) {
-                // Código não reconhecido
-                showStatus(`ERRO: ID "${scannedId}" não encontrado.`, 'error');
-                console.error(`ID inválido escaneado: ${scannedId}`);
+                showStatus(`ERRO: ID "${scannedId}" não encontrado na lista.`, 'error');
                 return;
             }
 
-            // Verifica se a pessoa já está presente
             if (person.presente) {
-                // Pessoa já registrada
                 showStatus(`AVISO: ${person.nome} já PRESENTE (Reg: ${person.registro}).`, 'error');
-                console.warn(`${scannedId} já está presente.`);
                 return;
             }
 
-            // Registro de presença bem-sucedido
-            person.presente = true;
-            person.registro = now;
-            saveAttendanceList(list);
-
-            showStatus(`SUCESSO: ${person.nome} (ID: ${scannedId}) REGISTRADO(A)!`, 'success');
-            console.log(`${scannedId} registrado com sucesso.`);
+            try {
+                // Atualiza APENAS o campo específico no documento
+                const updateObject = {};
+                updateObject[scannedId] = { presente: true, nome: person.nome, registro: now };
+                updateObject.lastUpdated = new Date().toISOString();
+                
+                await firebase.updateDoc(docRef, updateObject);
+                
+                showStatus(`SUCESSO: ${person.nome} (ID: ${scannedId}) REGISTRADO(A)!`, 'success');
+            } catch (error) {
+                console.error("Erro ao registrar presença no Firestore:", error);
+                showStatus("ERRO DE DB: Não foi possível registrar a presença.", 'error');
+            }
         }
 
         /**
          * Loop principal de detecção de QR Code.
          */
         function tick() {
-            // Se o vídeo não estiver rodando, ou estiver pausado, ou não tiver dimensão, para o loop.
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                // Configura o canvas para o tamanho do vídeo
                 canvas.height = video.videoHeight;
                 canvas.width = video.videoWidth;
 
-                // Desenha o frame do vídeo no canvas
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                 
-                // Pega os dados de pixel do canvas
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 
-                // Tenta decodificar o QR code
                 const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                    inversionAttempts: "dontInvert", // Otimiza para QR codes impressos
+                    inversionAttempts: "dontInvert",
                 });
 
                 if (code) {
-                    // QR Code encontrado!
-                    // Pausa o vídeo para evitar múltiplos scans do mesmo código imediatamente
                     video.pause();
                     checkAndRegisterPresence(code.data);
                     
-                    // Continua o escaneamento após um breve período para dar tempo ao usuário de ver a mensagem
+                    // Continua o escaneamento após 2.5 segundos
                     setTimeout(() => {
                         video.play();
-                    }, 2500); // 2.5 segundos de pausa
+                    }, 2500);
                     
                 }
             }
-            // Continua o loop de escaneamento
             requestAnimationFrame(tick);
         }
 
         // --- 4. Inicialização e Event Listeners ---
+
+        /**
+         * Configura o Firebase e inicia o listener de autenticação.
+         */
+        async function setupFirebase() {
+            // Verifica se o SDK foi carregado
+            if (typeof window.firebase === 'undefined') {
+                console.error("ERRO: Firebase SDK não carregado corretamente.");
+                return;
+            }
+            
+            try {
+                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+                const app = firebase.initializeApp(firebaseConfig);
+                db = firebase.getFirestore(app);
+                auth = firebase.getAuth(app);
+                
+                console.log("Firebase inicializado. Autenticando...");
+
+                // Tenta autenticar usando o token fornecido pelo ambiente
+                if (typeof __initial_auth_token !== 'undefined') { 
+                    await firebase.signInWithCustomToken(auth, __initial_auth_token);
+                } else { 
+                    await firebase.signInAnonymously(auth);
+                }
+                
+                // O listener onAuthStateChanged garante que o código só continue após o login
+                firebase.onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        currentUserId = user.uid;
+                        isAuthReady = true;
+                        userIdDisplay.textContent = currentUserId;
+                        console.log("Autenticação bem-sucedida. UID:", currentUserId);
+                        
+                        startRealtimeListener(); // Inicia a sincronização com o DB
+                        startCamera(); // Inicia a câmera
+                    } else {
+                        console.error("Falha na autenticação do Firebase.");
+                        loadingMessage.textContent = "ERRO: Falha na autenticação. Recarregue a página.";
+                        loadingMessage.classList.add('bg-red-700');
+                    }
+                });
+
+            } catch (e) {
+                console.error("ERRO GRAVE na configuração do Firebase:", e);
+                loadingMessage.textContent = `ERRO FATAL: Falha ao iniciar Firebase. Causa: ${e.message.substring(0, 50)}...`;
+                loadingMessage.classList.add('bg-red-700');
+            }
+        }
         
         /**
          * Inicia o feed da câmera.
          */
         async function startCamera() {
-            // Inicializa a lista e o display
-            const initialList = initializeAttendanceList();
-            updateCountDisplay(initialList);
-            
             try {
                 // Pede permissão e inicia a câmera
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { 
-                        facingMode: "environment" // Usa a câmera traseira em celulares
+                        facingMode: "environment" // Câmera traseira
                     } 
                 });
                 
                 video.srcObject = stream;
-                video.setAttribute("playsinline", true); // Requerido para iOS
+                video.setAttribute("playsinline", true);
                 
                 video.onloadedmetadata = () => {
                     video.play();
                     loadingMessage.style.display = 'none'; // Esconde a mensagem de carregamento
-                    requestAnimationFrame(tick); // Inicia o loop de escaneamento
+                    // O loop 'tick' só começa após a autenticação e o vídeo iniciar
+                    requestAnimationFrame(tick);
                 };
 
             } catch (err) {
-                console.error("ERRO GRAVE: Falha ao acessar a câmera. Causa:", err.name, err.message);
-                loadingMessage.textContent = "ERRO: Câmera inacessível. Esta página precisa ser aberta via HTTPS ou servidor web local (http://) para acessar a câmera.";
+                console.error("ERRO: Falha ao acessar a câmera. Causa:", err.name, err.message);
+                loadingMessage.textContent = "ERRO: Câmera inacessível. Verifique permissões.";
                 loadingMessage.classList.remove('bg-gray-900');
                 loadingMessage.classList.add('bg-red-700');
             }
         }
         
-        // Listener para o botão de reset (implementa confirmação de clique duplo)
+        // Listener para o botão de reset (confirmação de clique duplo)
         let resetClickCount = 0;
-        resetButton.addEventListener('click', () => {
+        resetButton.addEventListener('click', async () => {
             if (resetClickCount === 0) {
                 resetButton.textContent = 'CONFIRMAR? Clique novamente para APAGAR TUDO!';
                 resetButton.classList.remove('bg-red-500', 'hover:bg-red-600');
                 resetButton.classList.add('bg-red-700', 'hover:bg-red-800');
                 resetClickCount = 1;
 
-                // Define um timeout para reverter o botão caso não haja o segundo clique
                 setTimeout(() => {
                     if (resetClickCount === 1) {
                         resetButton.textContent = 'Redefinir Lista de Presença (Clique Duplo)';
@@ -368,19 +447,29 @@
                         resetButton.classList.add('bg-red-500', 'hover:bg-red-600');
                         resetClickCount = 0;
                     }
-                }, 3000); // 3 segundos para confirmar
+                }, 3000); 
             } else {
-                // Confirmação de reset realizada
-                localStorage.removeItem(STORAGE_KEY);
-                console.log("Lista de presença redefinida por confirmação de duplo clique.");
-                window.location.reload(); 
+                // Confirmação de reset realizada: Sobrescreve o documento no Firestore
+                try {
+                    const docRef = getAttendanceDocRef();
+                    const initialData = generateInitialAttendanceData();
+                    await firebase.setDoc(docRef, initialData); // Sobrescreve
+                    console.log("Lista de presença redefinida no Firestore.");
+                    showStatus("Lista de presença redefinida com sucesso!", 'success');
+                    resetButton.textContent = 'Redefinir Lista de Presença (Clique Duplo)';
+                    resetButton.classList.remove('bg-red-700', 'hover:bg-red-800');
+                    resetButton.classList.add('bg-red-500', 'hover:bg-red-600');
+                    resetClickCount = 0;
+                } catch (error) {
+                     console.error("Erro ao redefinir lista no Firestore:", error);
+                     showStatus("ERRO ao redefinir lista. Verifique a conexão.", 'error');
+                }
             }
         });
         
-        // Inicia o aplicativo ao carregar a página
-        window.addEventListener('load', startCamera);
+        // Inicia a configuração do Firebase ao carregar a página
+        window.addEventListener('load', setupFirebase);
 
     </script>
 </body>
-
 </html>
