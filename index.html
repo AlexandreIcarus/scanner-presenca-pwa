@@ -66,19 +66,6 @@
     </style>
     <!-- Inclui a biblioteca jsQR para decodificar o QR code -->
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-
-    <!-- Firebase SDKs para Banco de Dados em Nuvem (Firestore) -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        
-        // As variáveis globais serão setadas após o carregamento do window
-        window.firebase = { 
-            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, 
-            onAuthStateChanged, getFirestore, doc, setDoc, updateDoc, onSnapshot 
-        };
-    </script>
 </head>
 <body class="bg-gray-50 min-h-screen p-4 flex flex-col items-center">
 
@@ -137,6 +124,104 @@
     </div>
 
     <script type="module">
+        // Importa todas as bibliotecas do Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // --- Lista Fixa de Nomes (fornecida pelo usuário) ---
+        const PERSON_LIST = {
+            "P001": "Alexandre Ferraz Brito",
+            "P002": "Tatiane Damazio Brito",
+            "P003": "Miguel Damazio Brito",
+            "P004": "Cristiano Vargas",
+            "P005": "Andrea Silva",
+            "P006": "Daniel Silva",
+            "P007": "Patrícia Akiko Watanabe Ohrenstein",
+            "P008": "Waldir Ohreinstein",
+            "P009": "Maria Lucia Pereira",
+            "P010": "Victor Watanabe",
+            "P011": "Daniel Oliveira",
+            "P012": "Daniel Lisboa",
+            "P013": "Tainá de Fátima",
+            "P014": "Rafaella Theodoro Evangelista",
+            "P015": "Gabriela Liviero Moraes",
+            "P016": "Gabriel Petille Hune",
+            "P017": "Nadinne Damazio da Silva",
+            "P018": "Vitor Miranda",
+            "P019": "Romeu Damazio Miranda",
+            "P020": "Cauê Augusto",
+            "P021": "Juliana Sta Bárbara",
+            "P022": "Rafael Aguiar Almeida",
+            "P023": "Ana Paula Beserra de Souza Almeida",
+            "P024": "Ana Beatriz Beserra de Souza Almeida",
+            "P025": "Rafael Aguiar Almeida Filho",
+            "P026": "Roberto Oliveira dos Santos",
+            "P027": "Adriana Beserra Cordeiro Souza",
+            "P028": "Natali Santos Rosa",
+            "P029": "Alex Beserra Queiroz",
+            "P030": "Clara Salviano de Jesus",
+            "P031": "Ana Luisa Beserra Queiroz",
+            "P032": "Sandra Beserra Cordeiro Souza",
+            "P033": "Rafaela Zuccolo Pinto do Nascimento",
+            "P034": "Gustavo Santos",
+            "P035": "Letícia migliori",
+            "P036": "Aparecido Almeida",
+            "P037": "Sueli Maria Mendes Almeida",
+            "P038": "Melissa Aguiar Almeida",
+            "P039": "Isabella Almeida do Rosario",
+            "P040": "Talita Mariana Rodrigues",
+            "P041": "Guillermo Lima",
+            "P042": "Letícia Lima Gouveia",
+            "P043": "Guilherme L Soledade",
+            "P044": "Lucas Serio",
+            "P045": "Julia Vavlisy",
+            "P046": "Aparecida de Lourdes Capelini (Patrícia)",
+            "P047": "Carlos Requena",
+            "P048": "Elaine Rodrigues",
+            "P049": "Manuela Requena",
+            "P050": "Guilherme Fermino",
+            "P051": "Maria Angelica Santos",
+            "P052": "Eva Imaculada Ferreira",
+            "P053": "João Gabriel Yamamoto",
+            "P054": "Yasmim Cristina Barbosa",
+            "P055": "Amanda Pierrini",
+            "P056": "Filipe Olival Gomes",
+            "P057": "Alice Monteiro Gomes",
+            "P058": "Giselly Capelini Blasquez",
+            "P059": "Caio Castilhioni Branco",
+            "P060": "Maria Elizabete Ferraz",
+            "P061": "Ladirene Santos de Oliveira",
+            "P062": "Rubia Mara Requena",
+            "P063": "Raissa Requena",
+            "P064": "Lairton Faria",
+            "P065": "Maria Lucia Gomes Silva",
+            "P066": "Maria Eduarda Gomes Damasio",
+            "P067": "Camila Gomes Damasio",
+            "P068": "Tiago Gomes Silva",
+            "P069": "Felipe Gomes Silva",
+            "P070": "Sarah Gomes Damasio",
+            "P071": "Bruno Henrique Damasio Gomes",
+            "P072": "João Cipriano Rodrigues",
+            "P073": "Mara Rodrigues",
+            "P074": "Rodolfo Júlio (Ladirene)",
+            "P075": "Matheus Oliveira Ferraz Brito",
+            "P076": "Giovanna Maria Dester Ladeira",
+            "P077": "Rodrigo Thiago",
+            "P078": "Laís Ferreira",
+            "P079": "Pedro Thiago",
+            "P080": "João Thiago",
+            "P081": "Igor José Dester Ladeira",
+            "P082": "Gabriel de Oliveira Cavalcante",
+            "P083": "Natália de Freitas Cavalcante",
+            "P084": "Guilherme Tadeu Gomes gonçanves",
+            "P085": "Julia Vitória Amaral Gonçalves",
+            "P086": "Amiga Lucia (Madrinha)",
+            "P087": "Gerson José Quintiliano Ladeira",
+            "P088": "Janaina Dester Pereira Quintiliano Ladeira"
+        };
+        // --- Fim da Lista de Nomes ---
+
         // Variáveis globais para os elementos
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
@@ -164,6 +249,7 @@
         
         /**
          * Gera a lista inicial de 88 IDs se o documento não existir na base de dados.
+         * Agora usa a lista de nomes PERSON_LIST.
          */
         function generateInitialAttendanceData() {
             const initialData = {};
@@ -171,11 +257,12 @@
                 const id = `P${String(i).padStart(3, '0')}`;
                 initialData[id] = {
                     presente: false,
-                    nome: `Convidado ${i}`,
+                    nome: PERSON_LIST[id] || `Convidado ${i}`, // Usa o nome da lista
                     registro: null
                 };
             }
-            initialData.lastUpdated = new Date().toISOString();
+            // Adiciona um campo de metadados para garantir que o documento não seja tratado como "vazio"
+            initialData._metadata = { lastUpdated: new Date().toISOString(), totalPeople: TOTAL_PEOPLE };
             return initialData;
         }
 
@@ -185,7 +272,7 @@
         function getAttendanceDocRef() {
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             // Caminho público: /artifacts/{appId}/public/data/attendance/attendance_data
-            return firebase.doc(db, 'artifacts', appId, 'public', 'data', 'attendance', ATTENDANCE_DOC_ID);
+            return doc(db, 'artifacts', appId, 'public', 'data', 'attendance', ATTENDANCE_DOC_ID);
         }
 
         /**
@@ -195,21 +282,29 @@
             const docRef = getAttendanceDocRef();
             
             // Inicia o listener de tempo real
-            firebase.onSnapshot(docRef, async (docSnap) => {
-                if (!docSnap.exists() || Object.keys(docSnap.data()).length <= 1) { 
-                    // Documento não existe ou está vazio. Cria a estrutura inicial.
+            onSnapshot(docRef, async (docSnap) => {
+                const data = docSnap.data();
+                
+                // 1. Verifica se o documento precisa ser criado
+                if (!docSnap.exists() || !data || Object.keys(data).length <= 1) { 
                     const initialData = generateInitialAttendanceData();
-                    console.log("Documento não encontrado, criando lista inicial no Firestore.");
-                    // Tenta criar o documento. Se for a primeira vez, ele será criado.
-                    await firebase.setDoc(docRef, initialData);
+                    console.log("Documento não encontrado ou vazio, criando lista inicial no Firestore.");
+                    // Força a criação do documento com nomes corretos
+                    await setDoc(docRef, initialData); 
                     attendanceList = initialData;
                     showStatus("Lista inicial criada no Firestore. Aponte a câmera.", 'info');
-                } else {
-                    // Documento existe, atualiza o estado local
-                    attendanceList = docSnap.data();
-                    updateCountDisplay(attendanceList);
-                    showStatus("Conectado à base de dados em tempo real. Pronto para escanear.", 'success');
+                    return;
                 }
+                
+                // 2. Documento existe, atualiza o estado local e a UI
+                attendanceList = data;
+                updateCountDisplay(attendanceList);
+                
+                // Se o vídeo estiver pausado (após um registro), não sobrescreve o status com "Pronto"
+                if (video.paused) return; 
+
+                showStatus("Conectado à base de dados em tempo real. Pronto para escanear.", 'success');
+                
             }, (error) => {
                 console.error("Erro ao conectar ao Firestore:", error);
                 showStatus("ERRO: Falha na sincronização com o banco de dados.", 'error');
@@ -221,9 +316,10 @@
          * @param {Object} list - A lista de presença (dados do Firestore).
          */
         function updateCountDisplay(list) {
-            // Remove a chave 'lastUpdated' e outras chaves de metadados
-            const filteredList = Object.values(list).filter(key => key.presente !== undefined);
-            const presentCount = filteredList.filter(p => p.presente).length;
+            // Conta apenas as chaves que são IDs de pessoas (P001, etc.)
+            const presentCount = Object.keys(list)
+                .filter(key => key.startsWith('P') && list[key].presente)
+                .length;
             
             countDisplay.textContent = `${presentCount} / ${TOTAL_PEOPLE}`;
             renderAttendanceList(list); 
@@ -240,15 +336,19 @@
 
             personKeys.forEach(id => {
                 const person = list[id];
+                const name = person ? person.nome : 'Desconhecido';
+
                 let classes = 'p-1 rounded-sm transition-colors duration-200 text-center'; 
                 
                 if (person && person.presente) {
-                    classes += ' font-bold text-gray-900 bg-green-200';
+                    // Adiciona um tooltip/título com o nome completo
+                    classes += ' font-bold text-gray-900 bg-green-200 hover:bg-green-300';
                 } else {
-                    classes += ' text-gray-400 bg-gray-100';
+                    classes += ' text-gray-400 bg-gray-100 hover:bg-gray-200';
                 }
 
-                html += `<span data-id="${id}" class="${classes}">${id}</span>`;
+                // Adiciona o atributo title para mostrar o nome ao passar o mouse/tocar
+                html += `<span data-id="${id}" class="${classes}" title="${name}${person.presente ? ' (Presente: ' + person.registro + ')' : ''}">${id}</span>`;
             });
 
             attendanceListDisplay.innerHTML = html;
@@ -294,13 +394,15 @@
             const person = attendanceList[scannedId];
             const now = new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
             const docRef = getAttendanceDocRef();
+            const personName = PERSON_LIST[scannedId] || `ID ${scannedId}`; // Nome para exibição
 
             if (!person) {
-                showStatus(`ERRO: ID "${scannedId}" não encontrado na lista.`, 'error');
+                showStatus(`ERRO: ID "${scannedId}" (${personName}) não encontrado na lista.`, 'error');
                 return;
             }
 
             if (person.presente) {
+                // Mensagem agora inclui o nome
                 showStatus(`AVISO: ${person.nome} já PRESENTE (Reg: ${person.registro}).`, 'error');
                 return;
             }
@@ -308,12 +410,18 @@
             try {
                 // Atualiza APENAS o campo específico no documento
                 const updateObject = {};
-                updateObject[scannedId] = { presente: true, nome: person.nome, registro: now };
-                updateObject.lastUpdated = new Date().toISOString();
+                // O caminho no update precisa ser o ID da pessoa (Ex: P001.presente)
+                updateObject[`${scannedId}.presente`] = true; 
+                updateObject[`${scannedId}.registro`] = now;
+                updateObject['_metadata.lastUpdated'] = new Date().toISOString();
                 
-                await firebase.updateDoc(docRef, updateObject);
+                // IMPORTANTE: Garante que o nome na DB está correto, caso tenha sido criado como "Convidado X" antes.
+                updateObject[`${scannedId}.nome`] = personName; 
+
+                await updateDoc(docRef, updateObject);
                 
-                showStatus(`SUCESSO: ${person.nome} (ID: ${scannedId}) REGISTRADO(A)!`, 'success');
+                // Mensagem de sucesso agora inclui o nome
+                showStatus(`SUCESSO: ${personName} (ID: ${scannedId}) REGISTRADO(A)!`, 'success');
             } catch (error) {
                 console.error("Erro ao registrar presença no Firestore:", error);
                 showStatus("ERRO DE DB: Não foi possível registrar a presença.", 'error');
@@ -337,7 +445,10 @@
                 });
 
                 if (code) {
+                    // QR Code encontrado: Pausa o vídeo antes de chamar o registro
                     video.pause();
+                    
+                    // Verifica se o ID escaneado é diferente do último para evitar scans rápidos
                     checkAndRegisterPresence(code.data);
                     
                     // Continua o escaneamento após 2.5 segundos
@@ -356,36 +467,31 @@
          * Configura o Firebase e inicia o listener de autenticação.
          */
         async function setupFirebase() {
-            // Verifica se o SDK foi carregado
-            if (typeof window.firebase === 'undefined') {
-                console.error("ERRO: Firebase SDK não carregado corretamente.");
-                return;
-            }
-            
             try {
                 const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-                const app = firebase.initializeApp(firebaseConfig);
-                db = firebase.getFirestore(app);
-                auth = firebase.getAuth(app);
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
                 
                 console.log("Firebase inicializado. Autenticando...");
 
                 // Tenta autenticar usando o token fornecido pelo ambiente
                 if (typeof __initial_auth_token !== 'undefined') { 
-                    await firebase.signInWithCustomToken(auth, __initial_auth_token);
+                    await signInWithCustomToken(auth, __initial_auth_token);
                 } else { 
-                    await firebase.signInAnonymously(auth);
+                    await signInAnonymously(auth);
                 }
                 
                 // O listener onAuthStateChanged garante que o código só continue após o login
-                firebase.onAuthStateChanged(auth, (user) => {
+                onAuthStateChanged(auth, (user) => {
                     if (user) {
                         currentUserId = user.uid;
                         isAuthReady = true;
                         userIdDisplay.textContent = currentUserId;
                         console.log("Autenticação bem-sucedida. UID:", currentUserId);
                         
-                        startRealtimeListener(); // Inicia a sincronização com o DB
+                        // IMPORTANTE: Se o documento não existir, ele será criado com os nomes corretos.
+                        startRealtimeListener(); 
                         startCamera(); // Inicia a câmera
                     } else {
                         console.error("Falha na autenticação do Firebase.");
@@ -418,8 +524,8 @@
                 
                 video.onloadedmetadata = () => {
                     video.play();
-                    loadingMessage.style.display = 'none'; // Esconde a mensagem de carregamento
-                    // O loop 'tick' só começa após a autenticação e o vídeo iniciar
+                    // O loadingMessage só é escondido após o vídeo começar E a autenticação terminar (via onAuthStateChanged)
+                    if(isAuthReady) loadingMessage.style.display = 'none'; 
                     requestAnimationFrame(tick);
                 };
 
@@ -452,10 +558,11 @@
                 // Confirmação de reset realizada: Sobrescreve o documento no Firestore
                 try {
                     const docRef = getAttendanceDocRef();
-                    const initialData = generateInitialAttendanceData();
-                    await firebase.setDoc(docRef, initialData); // Sobrescreve
+                    // Redefine usando a função que inclui os nomes corretos
+                    const initialData = generateInitialAttendanceData(); 
+                    await setDoc(docRef, initialData); // Sobrescreve (cria se não existir)
                     console.log("Lista de presença redefinida no Firestore.");
-                    showStatus("Lista de presença redefinida com sucesso!", 'success');
+                    showStatus("Lista de presença redefinida com sucesso! Todos os dispositivos estão zerados.", 'success');
                     resetButton.textContent = 'Redefinir Lista de Presença (Clique Duplo)';
                     resetButton.classList.remove('bg-red-700', 'hover:bg-red-800');
                     resetButton.classList.add('bg-red-500', 'hover:bg-red-600');
