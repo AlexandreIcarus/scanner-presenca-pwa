@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scanner BRITOUR </title>
+    <title>Viagem Paranapiacaba - Scanner (Uso Local)</title>
     <!-- Configurações PWA (Para que ele funcione como um App) -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#10b981">
-    <link rel="manifest" href="data:application/json;base64,eyJpY29ucyI6W3sic2l6ZXMiOiIxOTJ4MTkyIiwidHlwZSI6ImltYWdlL3BuZyIsInNyYyI6Imh0dHBzOi8vcGxhY2Vob2xkLmNvLzE5MngxOTI/dGV4dD1RUiJ9LHsic2l6ZXMiOiI1MTJ4NTEyIiwidHlwZSI6ImltYWdlL3BuZyIsInNyYyI6Imh0dHBzOi8vcGxhY2Vob2xkLmNvLzUxMng1MTI/dGV4dD1RUiJ9XSwibmFtZSI6IlJlc2lzdHJvIFRSUSIsImR5c3BsYXkiOiJzdGFuZGFsb25lIiwic3RhcnRfdXJsIjoiLz91dG09c3RhbmRhbG9uZSIsImJhY2tncm91bmRfY29sb3IiOiIjRjNFREQ0In0=">
+    <link rel="manifest" href="data:application/json;base64,eyJpY29ucyI6W3sic2l6ZXMiOiIxOTJ4MTkyIiwidHlwZSI6ImltYWdlL3BuZyIsInNyYyI6Imh0dHBzOi8vcGxhY2Vob2xkLmNvLzE5MngxOTI/dGV4dD1RUiJ9LHsic2l6ZXMiOiI1MTJ4NTEyIiwidHlwZSI6ImltYWdlL3BuZyIsInNyYyI6Imh0dHBzOi8vcGxhY2Vob2xkLmNvLzUxMng1MTI/dGV4dD1RUiJ9XSwibmFtZSI6IlJlc2lzdHJvIFRSUSIsImR5c3BsYXkiOiJzdGFuZGFsb25lIiwic3RhcnRfdXJsIjoiLz91dG09c3RhbmRhbG9lZSIsImJhY2tncm91bmRfY29sb3IiOiIjRjNFREQ0In0=">
     <!-- Fim das Configurações PWA -->
 
     <!-- Carrega Tailwind CSS para estilização rápida e responsiva -->
@@ -71,7 +71,7 @@
 
     <div class="w-full max-w-lg">
         <h1 class="text-3xl font-bold text-center text-gray-800 mb-6 mt-2">
-            Viagem Paranapiacaba Scanner BRITOUR
+            Viagem Paranapiacaba - Scanner (Uso Local)
         </h1>
 
         <!-- Container da Câmera -->
@@ -96,10 +96,17 @@
             Aguardando inicialização da lista e da câmera.
         </div>
 
-        <!-- Botão para redefinir a lista (agora exige clique duplo) -->
-        <button id="reset-button" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-xl transition duration-150 shadow-lg">
-            Redefinir Lista de Presença (Clique Duplo)
-        </button>
+        <!-- Botões de Ação -->
+        <div class="flex space-x-2 mb-4">
+            <!-- Botão de Exportação -->
+            <button id="export-button" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-xl transition duration-150 shadow-lg">
+                Exportar Lista para TXT
+            </button>
+            <!-- Botão para redefinir a lista (agora exige clique duplo) -->
+            <button id="reset-button" class="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-xl transition duration-150 shadow-lg">
+                Redefinir Lista (Clique Duplo)
+            </button>
+        </div>
         
         <!-- Contagem de Presença -->
         <div class="mt-4 p-3 bg-white rounded-xl shadow-inner text-center">
@@ -130,7 +137,7 @@
             "P007": "Patrícia Akiko Watanabe Ohrenstein",
             "P008": "Waldir Ohreinstein",
             "P009": "Maria Lucia Pereira",
-            "P010": "Victor Yuri Watanabe",
+            "P010": "Victor Watanabe",
             "P011": "Daniel Oliveira",
             "P012": "Daniel Lisboa",
             "P013": "Tainá de Fátima",
@@ -206,7 +213,7 @@
             "P083": "Natália de Freitas Cavalcante",
             "P084": "Guilherme Tadeu Gomes gonçanves",
             "P085": "Julia Vitória Amaral Gonçalves",
-            "P086": "Nayara Cristina Barros",
+            "P086": "Amiga Lucia (Madrinha)",
             "P087": "Gerson José Quintiliano Ladeira",
             "P088": "Janaina Dester Pereira Quintiliano Ladeira"
         };
@@ -221,6 +228,7 @@
         const countDisplay = document.getElementById('count-display');
         const attendanceListDisplay = document.getElementById('attendance-list-display');
         const resetButton = document.getElementById('reset-button');
+        const exportButton = document.getElementById('export-button'); // Novo botão de exportação
 
         const TOTAL_PEOPLE = 88;
         const LOCAL_STORAGE_KEY = 'paranapiacaba_attendance_list';
@@ -467,7 +475,56 @@
             requestAnimationFrame(tick);
         }
 
-        // --- 4. Inicialização e Event Listeners ---
+        // --- 4. Funções de Exportação (TXT) ---
+
+        /**
+         * Gera um arquivo de texto (TXT) com os dados de presença e força o download.
+         */
+        function exportDataToText() {
+            const listToExport = attendanceList;
+            if (Object.keys(listToExport).length === 0) {
+                showStatus("Lista vazia. Não há dados para exportar.", 'error');
+                return;
+            }
+
+            // 1. Cria o cabeçalho do arquivo (formato CSV simples)
+            let textContent = "ID;Nome Completo;Status de Presença;Horário de Registro\n";
+
+            // Ordena os IDs para garantir consistência
+            const sortedKeys = Object.keys(listToExport).sort();
+
+            // 2. Itera sobre a lista e formata cada linha
+            sortedKeys.forEach(id => {
+                const person = listToExport[id];
+                // Usa 'Sim' ou 'Não' em vez de true/false
+                const status = person.presente ? 'Sim' : 'Não';
+                // Usa '' (vazio) se não houver registro
+                const registro = person.registro || ''; 
+                
+                // Formata a linha usando ponto e vírgula como separador
+                textContent += `${id};"${person.nome}";${status};${registro}\n`;
+            });
+
+            // 3. Cria um Blob (objeto de arquivo) a partir do texto
+            const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+
+            // 4. Cria um URL para o Blob e um link para download
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            
+            // Define o nome do arquivo para download (ex: Lista_Paranapiacaba_2025-11-19.txt)
+            const date = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // Ex: 20251119
+            link.download = `Lista_Paranapiacaba_${date}.txt`;
+
+            // 5. Simula o clique no link para iniciar o download
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showStatus("Exportação concluída! Verifique sua pasta de Downloads.", 'info');
+        }
+
+        // --- 5. Inicialização e Event Listeners ---
         
         /**
          * Inicia o feed da câmera.
@@ -493,7 +550,7 @@
 
             } catch (err) {
                 console.error("ERRO: Falha ao acessar a câmera. Causa:", err.name, err.message);
-                loadingMessage.textContent = "ERRO: Câmera inacessível. Verifique permissões (sem Firebase, isso é um erro de navegador/permissão).";
+                loadingMessage.textContent = "ERRO: Câmera inacessível. Verifique permissões.";
                 loadingMessage.classList.remove('bg-gray-900');
                 loadingMessage.classList.add('bg-red-700');
             }
@@ -518,7 +575,7 @@
 
                 setTimeout(() => {
                     if (resetClickCount === 1) {
-                        resetButton.textContent = 'Redefinir Lista de Presença (Clique Duplo)';
+                        resetButton.textContent = 'Redefinir Lista (Clique Duplo)';
                         resetButton.classList.remove('bg-red-700', 'hover:bg-red-800');
                         resetButton.classList.add('bg-red-500', 'hover:bg-red-600');
                         resetClickCount = 0;
@@ -532,12 +589,15 @@
                 
                 console.log("Lista de presença redefinida localmente.");
                 showStatus("Lista de presença redefinida com sucesso!", 'success', true);
-                resetButton.textContent = 'Redefinir Lista de Presença (Clique Duplo)';
+                resetButton.textContent = 'Redefinir Lista (Clique Duplo)';
                 resetButton.classList.remove('bg-red-700', 'hover:bg-red-800');
                 resetButton.classList.add('bg-red-500', 'hover:bg-red-600');
                 resetClickCount = 0;
             }
         });
+
+        // Listener para o novo botão de exportação
+        exportButton.addEventListener('click', exportDataToText);
         
         // Inicia o aplicativo ao carregar a página
         window.addEventListener('load', initializeApp);
@@ -545,7 +605,3 @@
     </script>
 </body>
 </html>
-
-
-
-
