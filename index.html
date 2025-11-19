@@ -109,7 +109,7 @@
         
         <!-- ID do Usuário (para fins de debug e identificação) -->
         <div class="mt-2 text-center text-xs text-gray-500">
-             <p>Usuário Atual: <span id="user-id-display">Carregando...</span></p>
+            <p>Usuário Atual: <span id="user-id-display">Carregando...</span></p>
         </div>
 
         <!-- Lista de Status de Presença -->
@@ -129,7 +129,7 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        // --- Lista Fixa de Nomes (fornecida pelo usuário) ---
+        // --- Lista Fixa de Nomes (88 pessoas) ---
         const PERSON_LIST = {
             "P001": "Alexandre Ferraz Brito",
             "P002": "Tatiane Damazio Brito",
@@ -243,13 +243,41 @@
         let currentUserId = 'unknown';
         
         // Estado local da lista (cache)
-        let attendanceList = {}; 
+        let attendanceList = {};    
+        let lastScannedId = null; // Para evitar scans repetidos imediatamente
+
+        // --- Funções de Feedback de Áudio (Beep) ---
+        /**
+         * Toca um bip simples para feedback de sucesso ou erro.
+         * @param {number} duration - Duração em segundos.
+         * @param {number} frequency - Frequência em Hz.
+         * @param {number} volume - Volume (0.0 a 1.0).
+         */
+        function playBeep(duration, frequency, volume) {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+                gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+
+                oscillator.start();
+                oscillator.stop(audioContext.currentTime + duration);
+            } catch (e) {
+                console.warn("Navegador não suporta AudioContext, sem feedback sonoro.");
+            }
+        }
+
 
         // --- 1. Funções de Persistência (Firestore) ---
         
         /**
          * Gera a lista inicial de 88 IDs se o documento não existir na base de dados.
-         * Agora usa a lista de nomes PERSON_LIST.
          */
         function generateInitialAttendanceData() {
             const initialData = {};
@@ -290,9 +318,9 @@
                     const initialData = generateInitialAttendanceData();
                     console.log("Documento não encontrado ou vazio, criando lista inicial no Firestore.");
                     // Força a criação do documento com nomes corretos
-                    await setDoc(docRef, initialData); 
+                    await setDoc(docRef, initialData);  
                     attendanceList = initialData;
-                    showStatus("Lista inicial criada no Firestore. Aponte a câmera.", 'info');
+                    showStatus("Lista inicial criada no Firestore. Aponte a câmera.", 'info', false); // Não toca beep na inicialização
                     return;
                 }
                 
@@ -303,7 +331,7 @@
                 // Se o vídeo estiver pausado (após um registro), não sobrescreve o status com "Pronto"
                 if (video.paused) return; 
 
-                showStatus("Conectado à base de dados em tempo real. Pronto para escanear.", 'success');
+                showStatus("Conectado à base de dados em tempo real. Pronto para escanear.", 'success', false); // Não toca beep na conexão
                 
             }, (error) => {
                 console.error("Erro ao conectar ao Firestore:", error);
@@ -318,11 +346,11 @@
         function updateCountDisplay(list) {
             // Conta apenas as chaves que são IDs de pessoas (P001, etc.)
             const presentCount = Object.keys(list)
-                .filter(key => key.startsWith('P') && list[key].presente)
+                .filter(key => key.startsWith('P') && list[key] && list[key].presente)
                 .length;
             
             countDisplay.textContent = `${presentCount} / ${TOTAL_PEOPLE}`;
-            renderAttendanceList(list); 
+            renderAttendanceList(list);  
         }
 
         /**
@@ -336,19 +364,21 @@
 
             personKeys.forEach(id => {
                 const person = list[id];
-                const name = person ? person.nome : 'Desconhecido';
+                // Garante que o objeto pessoa existe e tem a propriedade nome
+                const name = (person && person.nome) ? person.nome : 'Desconhecido';
 
                 let classes = 'p-1 rounded-sm transition-colors duration-200 text-center'; 
                 
                 if (person && person.presente) {
-                    // Adiciona um tooltip/título com o nome completo
+                    // Adiciona um tooltip/título com o nome completo e hora do registro
                     classes += ' font-bold text-gray-900 bg-green-200 hover:bg-green-300';
                 } else {
                     classes += ' text-gray-400 bg-gray-100 hover:bg-gray-200';
                 }
 
                 // Adiciona o atributo title para mostrar o nome ao passar o mouse/tocar
-                html += `<span data-id="${id}" class="${classes}" title="${name}${person.presente ? ' (Presente: ' + person.registro + ')' : ''}">${id}</span>`;
+                const timeString = (person && person.presente && person.registro) ? ` (Presente: ${person.registro})` : '';
+                html += `<span data-id="${id}" class="${classes}" title="${name}${timeString}">${id}</span>`;
             });
 
             attendanceListDisplay.innerHTML = html;
@@ -357,11 +387,12 @@
         // --- 2. Funções de UI e Feedback ---
 
         /**
-         * Exibe uma mensagem de status temporária.
+         * Exibe uma mensagem de status temporária e toca um beep.
          * @param {string} message - A mensagem a exibir.
          * @param {string} type - 'success', 'error', ou 'info'.
+         * @param {boolean} shouldPlayBeep - Se deve tocar o beep (default: true).
          */
-        function showStatus(message, type = 'info') {
+        function showStatus(message, type = 'info', shouldPlayBeep = true) {
             statusMessage.textContent = message;
             // Classes base para a mensagem de status
             statusMessage.className = 'text-center p-4 rounded-lg font-semibold text-lg shadow-md mb-6 transition duration-150 min-h-4rem border';
@@ -369,12 +400,15 @@
             switch (type) {
                 case 'success':
                     statusMessage.classList.add('bg-green-100', 'text-green-700', 'border-green-400');
+                    if (shouldPlayBeep) playBeep(0.1, 880, 0.5); // Beep agudo para sucesso
                     break;
                 case 'error':
                     statusMessage.classList.add('bg-red-100', 'text-red-700', 'border-red-400');
+                    if (shouldPlayBeep) playBeep(0.3, 220, 0.5); // Beep grave para erro
                     break;
                 default:
                     statusMessage.classList.add('bg-gray-100', 'text-gray-600', 'border-gray-200');
+                    // Não toca beep para info padrão
                     break;
             }
         }
@@ -386,45 +420,52 @@
          * @param {string} scannedId - O ID lido do QR Code.
          */
         async function checkAndRegisterPresence(scannedId) {
+            // Se for o mesmo ID escaneado muito recentemente, ignora
+            if (scannedId === lastScannedId) return;
+
             if (!isAuthReady) {
-                 showStatus("ERRO: O sistema de base de dados ainda não está pronto.", 'error');
-                 return;
+                showStatus("ERRO: O sistema de base de dados ainda não está pronto.", 'error');
+                return;
             }
             
             const person = attendanceList[scannedId];
             const now = new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
             const docRef = getAttendanceDocRef();
-            const personName = PERSON_LIST[scannedId] || `ID ${scannedId}`; // Nome para exibição
+            const personName = PERSON_LIST[scannedId] || `ID ${scannedId}`; 
+
+            lastScannedId = scannedId; // Define o ID como o último escaneado
 
             if (!person) {
                 showStatus(`ERRO: ID "${scannedId}" (${personName}) não encontrado na lista.`, 'error');
+                // Limpa o lastScannedId após um breve erro para permitir a tentativa novamente
+                setTimeout(() => lastScannedId = null, 2500);
                 return;
             }
 
             if (person.presente) {
-                // Mensagem agora inclui o nome
                 showStatus(`AVISO: ${person.nome} já PRESENTE (Reg: ${person.registro}).`, 'error');
+                // Limpa o lastScannedId após um breve aviso para permitir a tentativa novamente
+                setTimeout(() => lastScannedId = null, 2500);
                 return;
             }
 
             try {
-                // Atualiza APENAS o campo específico no documento
+                // Prepara o objeto de atualização usando dot notation
                 const updateObject = {};
-                // O caminho no update precisa ser o ID da pessoa (Ex: P001.presente)
-                updateObject[`${scannedId}.presente`] = true; 
+                updateObject[`${scannedId}.presente`] = true;    
                 updateObject[`${scannedId}.registro`] = now;
+                // Garante que o nome na DB está correto
+                updateObject[`${scannedId}.nome`] = personName; 
                 updateObject['_metadata.lastUpdated'] = new Date().toISOString();
                 
-                // IMPORTANTE: Garante que o nome na DB está correto, caso tenha sido criado como "Convidado X" antes.
-                updateObject[`${scannedId}.nome`] = personName; 
-
                 await updateDoc(docRef, updateObject);
                 
-                // Mensagem de sucesso agora inclui o nome
                 showStatus(`SUCESSO: ${personName} (ID: ${scannedId}) REGISTRADO(A)!`, 'success');
+                // O lastScannedId só é liberado pelo timeout do `tick` que reinicia o vídeo.
             } catch (error) {
                 console.error("Erro ao registrar presença no Firestore:", error);
                 showStatus("ERRO DE DB: Não foi possível registrar a presença.", 'error');
+                setTimeout(() => lastScannedId = null, 2500);
             }
         }
 
@@ -445,19 +486,21 @@
                 });
 
                 if (code) {
-                    // QR Code encontrado: Pausa o vídeo antes de chamar o registro
+                    // QR Code encontrado: Pausa o vídeo para processar o registro
                     video.pause();
                     
-                    // Verifica se o ID escaneado é diferente do último para evitar scans rápidos
                     checkAndRegisterPresence(code.data);
                     
-                    // Continua o escaneamento após 2.5 segundos
+                    // Continua o escaneamento após um período de pausa (2.5 segundos)
                     setTimeout(() => {
                         video.play();
+                        lastScannedId = null; // Libera o último ID escaneado para permitir novo scan
+                        // Se o status for de sucesso/erro, ele será sobrescrito pelo status de conexão no onSnapshot quando o vídeo for reiniciado.
                     }, 2500);
                     
                 }
             }
+            // Continua o loop de animação
             requestAnimationFrame(tick);
         }
 
@@ -468,23 +511,15 @@
          */
         async function setupFirebase() {
             
-            // --- ⚠️ INSTRUÇÕES: COLE SUA CONFIGURAÇÃO AQUI ⚠️ ---
-            // Se você estiver executando este código FORA do ambiente Canvas (ex: GitHub Pages),
+            // --- ⚠️ AVISO DE SEGURANÇA: CONFIGURAÇÃO FIREBASE ⚠️ ---
+            // Se você estiver executando este código FORA do ambiente Canvas,
             // a variável global `__firebase_config` não existirá.
-            // Para fazê-lo funcionar, você deve COPIAR e COLAR o objeto JSON de configuração
-            // do seu projeto Firebase (encontrado em Configurações do Projeto > Geral) abaixo.
-            
-            const HARDCODED_FIREBASE_CONFIG = {
-                // Exemplo:
-                apiKey: "AIzaSyC36Gp3WqNlqn57TsuR-pX-6i4W-V9FcW0",
-                authDomain: "paranapiacaba-cb6b7.firebaseapp.com",
-                databaseURL: "https://paranapiacaba-cb6b7-default-rtdb.firebaseio.com",
-                projectId: "paranapiacaba-cb6b7",
-                storageBucket: "paranapiacaba-cb6b7.firebasestorage.app",
-                messagingSenderId: "56163717122",
-                appId: "1:56163717122:web:c0324c8f02f0631fbf171b",
-                measurementId: "G-E6XMW7J6H5"
-            }; 
+            // Para fazê-lo funcionar, você deve COPIAR e COLAR o objeto JSON de
+            // configuração do seu projeto Firebase.
+            // Para proteger suas credenciais, este objeto foi ZERADO:
+            const HARDCODED_FIREBASE_CONFIG = {}; 
+            // Para usar fora do Canvas, preencha: { apiKey: "...", authDomain: "...", ... }
+            // -----------------------------------------------------
 
             let firebaseConfig;
 
@@ -498,27 +533,26 @@
                     firebaseConfig = {};
                 }
             } else if (HARDCODED_FIREBASE_CONFIG.projectId) {
-                 // 2. Usa a configuração hardcoded fornecida pelo usuário
+                // 2. Usa a configuração hardcoded (se o usuário a preencheu)
                 firebaseConfig = HARDCODED_FIREBASE_CONFIG;
-                console.log("Usando configuração hardcoded. Certifique-se de ter colado seus dados.");
+                console.log("Usando configuração hardcoded.");
             } else {
-                // 3. Nenhuma configuração encontrada (A CAUSA DO ERRO ATUAL)
-                const errorMessage = "ERRO FATAL: Configuração do Firebase faltando. O 'projectId' não foi encontrado. Se estiver fora do Canvas, cole o JSON de configuração na seção HARDCODED_FIREBASE_CONFIG.";
+                // 3. Nenhuma configuração encontrada
+                const errorMessage = "ERRO FATAL: Configuração do Firebase faltando. O 'projectId' não foi encontrado.";
                 console.error(errorMessage);
                 loadingMessage.textContent = errorMessage;
                 loadingMessage.classList.add('bg-red-700');
                 return;
             }
-            // --- Fim da lógica de configuração ---
             
             try {
                 // VERIFICAÇÃO FINAL CRÍTICA
                 if (!firebaseConfig.projectId) {
-                     const errorMessage = "ERRO FATAL: O 'projectId' não foi encontrado na configuração. Por favor, corrija o objeto HARDCODED_FIREBASE_CONFIG.";
-                     console.error(errorMessage, firebaseConfig);
-                     loadingMessage.textContent = errorMessage;
-                     loadingMessage.classList.add('bg-red-700');
-                     return;
+                    const errorMessage = "ERRO FATAL: O 'projectId' não foi encontrado na configuração. Por favor, corrija o objeto HARDCODED_FIREBASE_CONFIG se estiver fora do Canvas.";
+                    console.error(errorMessage, firebaseConfig);
+                    loadingMessage.textContent = errorMessage;
+                    loadingMessage.classList.add('bg-red-700');
+                    return;
                 }
 
                 const app = initializeApp(firebaseConfig);
@@ -543,8 +577,7 @@
                         userIdDisplay.textContent = currentUserId;
                         console.log("Autenticação bem-sucedida. UID:", currentUserId);
                         
-                        // IMPORTANTE: Se o documento não existir, ele será criado com os nomes corretos.
-                        startRealtimeListener(); 
+                        startRealtimeListener(); // Inicia o listener do DB
                         startCamera(); // Inicia a câmera
                     } else {
                         console.error("Falha na autenticação do Firebase.");
@@ -577,7 +610,7 @@
                 
                 video.onloadedmetadata = () => {
                     video.play();
-                    // O loadingMessage só é escondido após o vídeo começar E a autenticação terminar (via onAuthStateChanged)
+                    // Esconde a mensagem de loading assim que o vídeo começar a rodar E a autenticação estiver pronta
                     if(isAuthReady) loadingMessage.style.display = 'none'; 
                     requestAnimationFrame(tick);
                 };
@@ -606,7 +639,7 @@
                         resetButton.classList.add('bg-red-500', 'hover:bg-red-600');
                         resetClickCount = 0;
                     }
-                }, 3000); 
+                }, 3000);  
             } else {
                 // Confirmação de reset realizada: Sobrescreve o documento no Firestore
                 try {
@@ -615,14 +648,14 @@
                     const initialData = generateInitialAttendanceData(); 
                     await setDoc(docRef, initialData); // Sobrescreve (cria se não existir)
                     console.log("Lista de presença redefinida no Firestore.");
-                    showStatus("Lista de presença redefinida com sucesso! Todos os dispositivos estão zerados.", 'success');
+                    showStatus("Lista de presença redefinida com sucesso! Todos os dispositivos estão zerados.", 'success', true);
                     resetButton.textContent = 'Redefinir Lista de Presença (Clique Duplo)';
                     resetButton.classList.remove('bg-red-700', 'hover:bg-red-800');
                     resetButton.classList.add('bg-red-500', 'hover:bg-red-600');
                     resetClickCount = 0;
                 } catch (error) {
-                     console.error("Erro ao redefinir lista no Firestore:", error);
-                     showStatus("ERRO ao redefinir lista. Verifique a conexão.", 'error');
+                    console.error("Erro ao redefinir lista no Firestore:", error);
+                    showStatus("ERRO ao redefinir lista. Verifique a conexão.", 'error');
                 }
             }
         });
@@ -633,4 +666,3 @@
     </script>
 </body>
 </html>
-
